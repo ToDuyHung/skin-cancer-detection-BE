@@ -5,6 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
+from MLModel import *
+import utils
+
 app = FastAPI()
 
 app.add_middleware(
@@ -24,10 +27,9 @@ class InputData(BaseModel):
 
 @app.post("/predict")
 def predict(input: InputData):
-    print(input.img[:50])
-    return {
-        "status": "good",
-    }
+    img = utils.base64ToPILImage(input.img)
+    model = SimpleANN()
+    return model.predict(img)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
