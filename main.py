@@ -14,7 +14,7 @@ config_app = utils.get_config()
 logging.basicConfig(filename=config_app['log']['app'],
                     format=f'%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s')
 
-model = SimpleANN()
+model = PretrainedModel(config_app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,5 +47,6 @@ if __name__ == "__main__":
         host=config_app["server"]["ip_address"], 
         port=int(config_app["server"]["port"]), 
         reload=True,
+        reload_includes=["app.yml"],
         reload_excludes=["test.py"]
-        )
+    )

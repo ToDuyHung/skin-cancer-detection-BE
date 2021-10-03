@@ -1,6 +1,15 @@
 import tensorflow as tf
 import numpy as np
+import sys
 from PIL import Image
+
+class PretrainedModel:
+    _instance = None
+    def __new__(self, cfg=None, *args, **kwargs):
+        if not self._instance:
+            self._instance = getattr(sys.modules[__name__], cfg["model"])()
+
+        return self._instance
 
 class MLModel():
     def __init__(self):
