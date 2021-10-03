@@ -4,9 +4,12 @@ from PIL import Image
 import yaml
 
 def base64ToPILImage(b64str: str):
-    im_bytes = base64.b64decode(b64str)
-    im_file = BytesIO(im_bytes)
-    return Image.open(im_file)
+    try:
+        im_bytes = base64.b64decode(b64str)
+        im_file = BytesIO(im_bytes)
+        return Image.open(im_file)
+    except:
+        raise ValueError
 
 def get_config():
     with open('app.yml', encoding='utf-8') as cfgFile:

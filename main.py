@@ -1,6 +1,4 @@
-from typing import Optional
-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -33,10 +31,21 @@ def read_root():
 class InputData(BaseModel):
     img: str
 
-@app.post("/predict")
+@app.post("/predict/")
 def predict(input: InputData):
-    img = utils.base64ToPILImage(input.img)
+    img = None
+    try:
+        img = utils.base64ToPILImage(input.img)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid image base64 string value!")
+
     return model.predict(img)
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host=config_app["server"]["ip_address"], port=int(config_app["server"]["port"]), reload=True)
+    uvicorn.run(
+        "main:app", 
+        host=config_app["server"]["ip_address"], 
+        port=int(config_app["server"]["port"]), 
+        reload=True,
+        reload_excludes=["test.py"]
+        )
