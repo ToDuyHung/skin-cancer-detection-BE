@@ -2,7 +2,7 @@ server:
   ip_address: "0.0.0.0"
   port: 8080
 
-model: "SimpleANN"
+model: "MixedDataModelV1"
 
 log:
   app: "app.log"

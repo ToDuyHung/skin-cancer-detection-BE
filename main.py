@@ -30,16 +30,18 @@ def read_root():
 
 class InputData(BaseModel):
     img: str
+    age: int
+    gender: str
+    localization: str
 
 @app.post("/predict/")
 def predict(input: InputData):
-    img = None
     try:
-        img = utils.base64ToPILImage(input.img)
+        input.img = utils.base64ToPILImage(input.img)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid image base64 string value!")
 
-    return model.predict(img)
+    return model.predict(input)
 
 if __name__ == "__main__":
     uvicorn.run(

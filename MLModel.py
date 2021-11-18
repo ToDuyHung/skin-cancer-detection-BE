@@ -2,6 +2,10 @@ import tensorflow as tf
 import numpy as np
 import sys
 from PIL import Image
+from pathlib import Path
+import gdown
+import pickle
+import utils
 
 class PretrainedModel:
     _instance = None
@@ -24,10 +28,10 @@ class MLModel():
         return None
     
 
-    def predict(self, img: Image):
+    def predict(self, input):
         if self.model:
-            img_after_preprocess = self.preprocess(img)
-            prediction = self.model.predict(img_after_preprocess)
+            input_after_preprocess = self.preprocess(input)
+            prediction = self.model.predict(input_after_preprocess)
             return self.get_prediction_string(prediction)
 
         return None
@@ -42,9 +46,9 @@ class SimpleANN(MLModel):
         super().__init__()
         self.model = tf.keras.models.load_model('ML_models/simple_ANN.h5')
 
-    def preprocess(self, img: Image):
+    def preprocess(self, input):
         # Resize image and convert to numpy array
-        np_img = np.asarray(img.resize((125, 100)))
+        np_img = np.asarray(input.img.resize((125, 100)))
 
         # Normalization
         # Hard coded mean and std from jupyter notebook
@@ -55,3 +59,31 @@ class SimpleANN(MLModel):
         # Reshape input to compatible with ANN model
         np_img = np_img.reshape((1, 125*100*3))
         return np_img
+
+class MixedDataModelV1(MLModel):
+    def __init__(self):
+        super().__init__()
+        saved_path = 'ML_models/mixed_data_model_v1/'
+        model_file = saved_path + 'model.hdf5'
+        binarizers_file = saved_path + 'preprocess_binarizers.pkl'
+
+        Path(saved_path).mkdir(parents=True, exist_ok=True)
+        if not Path(model_file).exists():
+            url = 'https://drive.google.com/uc?id=1A-4jBVRZIbT32RMJczu_SFt9PZFy_yUx'
+            gdown.download(url, model_file, quiet=False)
+
+        if not Path(binarizers_file).exists():
+            url = 'https://drive.google.com/uc?id=1-1KkQblb2lNY5YFY4vNP22vCLLf59nJr'
+            gdown.download(url, binarizers_file, quiet=False)
+
+        self.model = tf.keras.models.load_model(model_file)
+        with open(binarizers_file, 'rb') as f:
+            self.ageScaler, self.sexBinarizer, self.localizationBinarizer, self.labelBinarizer = pickle.load(f)
+        
+    def preprocess(self, input):
+        img = utils.aspect_aware_resize(np.asarray(input.img), 224, 224)
+        age = self.ageScaler.transform(np.array([input.age]).reshape(-1, 1))
+        gender = self.sexBinarizer.transform([input.gender])
+        localization = self.localizationBinarizer.transform([input.localization])
+        clinicalData = np.hstack((age, gender, localization))
+        return [clinicalData, np.expand_dims(img, axis=0)]
