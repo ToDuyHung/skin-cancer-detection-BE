@@ -14,6 +14,7 @@ config_app = utils.get_config()
 logging.basicConfig(filename=config_app['log']['app'],
                     format=f'%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s')
 
+print(11111111111, config_app)
 model = PretrainedModel(config_app)
 
 app.add_middleware(
@@ -40,7 +41,6 @@ def predict(input: InputData):
         input.img = utils.base64ToPILImage(input.img)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid image base64 string value!")
-
     return model.predict(input)
 
 if __name__ == "__main__":

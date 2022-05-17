@@ -1,11 +1,22 @@
-import tensorflow as tf
+# import tensorflow as tf
 import numpy as np
 import sys
 from PIL import Image
 from pathlib import Path
-import gdown
+# import gdown
 import pickle
 import utils
+from HAM10000DataModule import HAM10000DataModule
+import torch
+import json
+from torchvision import transforms
+import cv2
+import matplotlib.pyplot as plt
+import base64
+
+def unnormalized_images(images, mean, std):
+    unnorm = transforms.Normalize(-mean/std, 1/std)
+    return unnorm(images)
 
 class PretrainedModel:
     _instance = None
@@ -30,21 +41,56 @@ class MLModel():
 
     def predict(self, input):
         if self.model:
-            input_after_preprocess = self.preprocess(input)
-            prediction = self.model.predict(input_after_preprocess)
-            return self.get_prediction_string(prediction)
+            img_after_preprocess, meta_after_preprocess = self.preprocess(input)
+            img_unnorm = unnormalized_images(img_after_preprocess, torch.tensor([0.485, 0.456, 0.406]), torch.tensor([0.229, 0.224, 0.225]))
+            
+            input_after_preprocess = (img_after_preprocess.unsqueeze(0).to(self.device), meta_after_preprocess[0].unsqueeze(0).to(self.device))
+            with torch.no_grad():
+                prediction, attention_maps = self.model(input_after_preprocess, get_attention=True)
+                attention_maps = attention_maps.sum(dim=1)
+
+                att = cv2.resize(attention_maps[0].detach().cpu().numpy(), (224, 224), interpolation=cv2.INTER_CUBIC)
+
+                # display the image
+                img_unnorm = img_unnorm.permute(1,2,0)
+                img_unnorm = img_unnorm.detach().cpu().numpy()
+                img_background = plt.imshow(img_unnorm, alpha=1.0)
+                plt.axis('off')
+                plt.imshow(att, cmap='jet', alpha=0.5, extent=img_background.get_extent())
+                plt.savefig('/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/test.jpg', bbox_inches='tight')
+                plt.close()
+                with open("/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/test.jpg", "rb") as img_file:
+                    b64_string = base64.b64encode(img_file.read()).decode("utf-8") 
+                    b64_string = 'data:image/jpeg;base64,' + b64_string
+                    print(b64_string[:50])
+            return [self.get_prediction_string(prediction), b64_string]
 
         return None
 
     def get_prediction_string(self, prediction):
-        idx = int(np.argmax(prediction))
-        return self.cancer_types[idx]
+        labels = list(self.config["label2id"].keys())
+        softmax = torch.nn.Softmax(dim=0)
+        probabilities = torch.mul(softmax(prediction[0]), 100).tolist()
+        prob_dict = dict(zip(labels, probabilities))
+        max_val, second_max = sorted(prob_dict.values())[-1], sorted(prob_dict.values())[-2]
+        max_key = list(prob_dict.keys())[list(prob_dict.values()).index(max_val)]
+        second_key = list(prob_dict.keys())[list(prob_dict.values()).index(second_max)]
+        max_val = round(max_val, 2)
+        second_max = round(second_max, 2)
+        print(max_key, second_key)
+        res = [
+            { 'label': max_key, 'value': str(max_val)},
+            { 'label': 'df', 'value': str(second_max)},
+            { 'label': 'other', 'value' : str(round(100 - max_val - second_max, 2))}
+        ]
+        print(res)
+        return res
 
 
 class SimpleANN(MLModel):
     def __init__(self):
         super().__init__()
-        self.model = tf.keras.models.load_model('ML_models/simple_ANN.h5')
+        # self.model = tf.keras.models.load_model('ML_models/simple_ANN.h5')
 
     def preprocess(self, input):
         # Resize image and convert to numpy array
@@ -63,27 +109,39 @@ class SimpleANN(MLModel):
 class MixedDataModelV1(MLModel):
     def __init__(self):
         super().__init__()
-        saved_path = 'ML_models/mixed_data_model_v1/'
-        model_file = saved_path + 'model.hdf5'
-        binarizers_file = saved_path + 'preprocess_binarizers.pkl'
+        model_path = "ML_models/kfold_500epoch/"
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.model = torch.load(model_path + "best_model.pth", map_location=self.device)
+        self.config = json.load(open(model_path + "config.json", "r"))
+        self.model.eval()
 
-        Path(saved_path).mkdir(parents=True, exist_ok=True)
-        if not Path(model_file).exists():
-            url = 'https://drive.google.com/uc?id=1A-4jBVRZIbT32RMJczu_SFt9PZFy_yUx'
-            gdown.download(url, model_file, quiet=False)
-
-        if not Path(binarizers_file).exists():
-            url = 'https://drive.google.com/uc?id=1-1KkQblb2lNY5YFY4vNP22vCLLf59nJr'
-            gdown.download(url, binarizers_file, quiet=False)
-
-        self.model = tf.keras.models.load_model(model_file)
-        with open(binarizers_file, 'rb') as f:
-            self.ageScaler, self.sexBinarizer, self.localizationBinarizer, self.labelBinarizer = pickle.load(f)
+        datamodule = HAM10000DataModule(data_path='ML_models/datacsv',
+                          img_size = 224,
+                          use_meta=True,
+						  train_mel = False,
+						  use_ab = False, use_kfold = True)
+        datamodule.setup()
+        self.ageScaler = datamodule.encoder['age']
+        self.sexBinarizer = datamodule.encoder['sex']
+        self.localizationBinarizer = datamodule.encoder['localization']
         
     def preprocess(self, input):
-        img = utils.aspect_aware_resize(np.asarray(input.img), 224, 224)
+        img_size = 224
+        val_trans = transforms.Compose([
+                    transforms.Resize(img_size),
+                    transforms.CenterCrop(img_size),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                ])
+        img = val_trans(input.img)
+        
         age = self.ageScaler.transform(np.array([input.age]).reshape(-1, 1))
-        gender = self.sexBinarizer.transform([input.gender])
-        localization = self.localizationBinarizer.transform([input.localization])
-        clinicalData = np.hstack((age, gender, localization))
-        return [clinicalData, np.expand_dims(img, axis=0)]
+        np.nan_to_num(age, copy=False)
+        sex = self.sexBinarizer.transform(np.array([input.gender]).reshape(-1, 1)).toarray()
+        localization = self.localizationBinarizer.transform(np.array([input.localization]).reshape(-1, 1)).toarray()
+        print(age, sex, localization)
+        metadata = torch.tensor(np.concatenate([age, sex, localization], axis=1), dtype=torch.float32)
+
+        # img = img.unsqueeze(0).to(self.device)
+        # metadata = metadata[0].unsqueeze(0).to(self.device)
+        return (img, metadata)
