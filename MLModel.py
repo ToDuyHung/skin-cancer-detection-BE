@@ -17,6 +17,8 @@ import base64
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 from torchvision import transforms, models
 
 from utils_model.BaseLitModel import BaseLitModel
@@ -65,7 +67,7 @@ class MLModel():
                 img_unnorm = img_unnorm.detach().cpu().numpy()
                 img_background = plt.imshow(img_unnorm, alpha=1.0)
                 plt.axis('off')
-                plt.imshow(att, cmap='jet', alpha=0.5, extent=img_background.get_extent())
+                plt.imshow(att, cmap='jet', alpha=0.3, extent=img_background.get_extent())
                 plt.savefig('/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/test.jpg', bbox_inches='tight')
                 plt.close()
                 with open("/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/test.jpg", "rb") as img_file:
@@ -194,8 +196,8 @@ class EffAdditiveABModel():
                     b64_string = base64.b64encode(img_file.read()).decode("utf-8") 
                     b64_string = 'data:image/jpeg;base64,' + b64_string
                     print(b64_string[:50])
-            return [self.get_prediction_string(prediction), b64_string]
-            # return self.get_prediction_string(prediction)
+            # return [self.get_prediction_string(prediction), b64_string]
+            return self.get_prediction_string(prediction)
 
         return None
 
@@ -221,16 +223,18 @@ class EffAdditiveABModel():
 class EffAdditiveAB_61(EffAdditiveABModel):
     def __init__(self):
         super().__init__()
-        model_path = "ML_models/EffAdditiveAB/"
+        # model_path = "ML_models/EffAdditiveAB/"
+        model_path = "ML_models/"
         effnet_version = 'efficientnet_b4'
         base_model = getattr(models, effnet_version)(pretrained=True)
         num_classes=7
         num_hidden = 1024
-        d_meta = 20
+        # d_meta = 20
+        d_meta = 17
         img_block = base_model.features
         model = EffNetMetaImageAttentionV3(img_block, AdditiveMetaAttentionBlock, [3, 5, 8], num_classes, d_meta, dropout=0.3, embed_dim=512)
         
-        lit_model = BaseLitModel.load_from_checkpoint(os.path.join(model_path, 'epoch=61-val_acc=0.9008.ckpt'),
+        lit_model = BaseLitModel.load_from_checkpoint(os.path.join(model_path, 'EffAddNoAB_OldTranssforrm/epoch=46-val_acc=0.8596.ckpt'),
                                               model=model,
                                               loss=None,
                                               get_optim=None,
@@ -243,7 +247,7 @@ class EffAdditiveAB_61(EffAdditiveABModel):
         # self.model = torch.load(model_path + "best_model.pth", map_location=self.device)
         # self.config = json.load(open(model_path + "config.json", "r"))
 
-        with open(os.path.join(model_path, 'HAM10000_abcd_encoder_norm.pkl'), 'rb') as f:
+        with open(os.path.join(model_path, 'EffAdditiveAB/HAM10000_abcd_encoder_norm.pkl'), 'rb') as f:
             self.encoder = pickle.load(f) 
         self.ageScaler = self.encoder['age']
         self.sexBinarizer = self.encoder['sex']
@@ -262,7 +266,24 @@ class EffAdditiveAB_61(EffAdditiveABModel):
                     transforms.ToTensor(),
                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                 ])
+        # val_trans = A.Compose([
+        #     A.SmallestMaxSize(max_size=img_size + 20),
+        #     # A.Resize(width=int((img_size+20) / 0.75), height=(img_size+20)),
+        #     A.ShiftScaleRotate(0.05, 0.2, 20, border_mode=cv2.BORDER_REPLICATE),
+        #     A.RandomCrop(width=img_size, height=img_size),
+        #     A.VerticalFlip(p=0.5),
+        #     A.HorizontalFlip(p=0.5),
+        #     A.ColorJitter(brightness=.3, contrast=.3, saturation=.3, hue=.05),
+        #     # A.Affine(scale=(.8, 1.2), rotate=(-20, 20), mode=cv2.BORDER_REPLICATE, always_apply=True),
+        #     A.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        #     ToTensorV2()
+        # ])
         img = val_trans(input.img)
+        # img = np.asarray(input.img)
+        # cv2.imwrite('/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/imgBGR.jpg', img)
+        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # cv2.imwrite('/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/imgRGB.jpg', img)
+        # img = val_trans(image=img)['image']
         
         age = self.ageScaler.transform(np.array([input.age]).reshape(-1, 1))
         np.nan_to_num(age, copy=False)
@@ -276,7 +297,8 @@ class EffAdditiveAB_61(EffAdditiveABModel):
         ecc = self.eccScaler.transform(np.array([ecc]).reshape(-1, 1))
         compact_idx = self.compact_idxScaler.transform(np.array([compact_idx]).reshape(-1, 1))
 
-        metadata = torch.tensor(np.concatenate([age, sex, localization, asymm_idx, ecc, compact_idx], axis=1), dtype=torch.float32)
+        # metadata = torch.tensor(np.concatenate([age, sex, localization, asymm_idx, ecc, compact_idx], axis=1), dtype=torch.float32)
+        metadata = torch.tensor(np.concatenate([age, sex, localization], axis=1), dtype=torch.float32)
         # img = img.unsqueeze(0).to(self.device)
         # metadata = metadata[0].unsqueeze(0).to(self.device)
         return (img, metadata)
