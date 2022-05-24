@@ -190,14 +190,14 @@ class EffAdditiveABModel():
                 img_background = plt.imshow(img_unnorm, alpha=1.0)
                 plt.axis('off')
                 plt.imshow(att, cmap='jet', alpha=0.5, extent=img_background.get_extent())
-                plt.savefig('/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/test.jpg', bbox_inches='tight')
+                plt.savefig('./attention_img/test.jpg', bbox_inches='tight')
                 plt.close()
-                with open("/home/duyhung/Documents/skin-cancer-detection-BE/attention_img/test.jpg", "rb") as img_file:
+                with open("./attention_img/test.jpg", "rb") as img_file:
                     b64_string = base64.b64encode(img_file.read()).decode("utf-8") 
                     b64_string = 'data:image/jpeg;base64,' + b64_string
                     print(b64_string[:50])
-            # return [self.get_prediction_string(prediction), b64_string]
-            return self.get_prediction_string(prediction)
+            return [self.get_prediction_string(prediction), b64_string]
+            # return self.get_prediction_string(prediction)
 
         return None
 
